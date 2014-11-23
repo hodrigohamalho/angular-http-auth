@@ -11,35 +11,67 @@
   angular.module('http-auth-interceptor', ['http-auth-interceptor-buffer'])
 
   .factory('authService', ['$rootScope','httpBuffer', function($rootScope, httpBuffer) {
-    return {
-      /**
-       * Call this function to indicate that authentication was successfull and trigger a
-       * retry of all deferred requests.
-       * @param data an optional argument to pass on to $broadcast which may be useful for
-       * example if you need to pass through details of the user that was logged in
-       * @param configUpdater an optional transformation function that can modify the                                                                                                                                                   
-       * requests that are retried after having logged in.  This can be used for example
-       * to add an authentication token.  It must return the request.
-       */
-      loginConfirmed: function(data, configUpdater) {
-        var updater = configUpdater || function(config) {return config;};
-        $rootScope.$broadcast('event:auth-loginConfirmed', data);
-        httpBuffer.retryAll(updater);
-      },
-
-      /**
-       * Call this function to indicate that authentication should not proceed.
-       * All deferred requests will be abandoned or rejected (if reason is provided).
-       * @param data an optional argument to pass on to $broadcast.
-       * @param reason if provided, the requests are rejected; abandoned otherwise.
-       */
-      loginCancelled: function(data, reason) {
-        httpBuffer.rejectAll(reason);
-        $rootScope.$broadcast('event:auth-loginCancelled', data);
-      }
+    
+	  var AuthService = function(){
+	      /**
+	       * Call this function to indicate that authentication was successfull and trigger a
+	       * retry of all deferred requests.
+	       * @param data an optional argument to pass on to $broadcast which may be useful for
+	       * example if you need to pass through details of the user that was logged in
+	       * @param configUpdater an optional transformation function that can modify the                                                                                                                                                   
+	       * requests that are retried after having logged in.  This can be used for example
+	       * to add an authentication token.  It must return the request.
+	       */
+	      this.loginConfirmed = function(data, configUpdater) {
+	        var updater = configUpdater || this.secureRequest;
+	        $rootScope.$broadcast('event:auth-loginConfirmed', data);
+	        httpBuffer.retryAll(updater);
+	      };
+	
+	      /**
+	       * Call this function to indicate that authentication should not proceed.
+	       * All deferred requests will be abandoned or rejected (if reason is provided).
+	       * @param data an optional argument to pass on to $broadcast.
+	       * @param reason if provided, the requests are rejected; abandoned otherwise.
+	       */
+	      this.loginCancelled = function(data, reason) {
+	        httpBuffer.rejectAll(reason);
+	        $rootScope.$broadcast('event:auth-loginCancelled', data);
+	      };
+	      
+	      /** The methods above is about the token manipulation **/
+	      
+	      /**
+		   * Take the token from response and put on session storage
+		   */
+		  this.initSession = function(response) {
+	          sessionStorage.setItem('token', response.authctoken);
+	      };
+	
+	      /**
+	       * Remove token from session storage
+	       */
+	      this.endSession = function() {
+	          sessionStorage.removeItem('token');
+	      };
+	
+	      /**
+	       * Create a Authorization header with the token stored
+	       */
+	      this.secureRequest = function(requestConfig) {
+	          var token = sessionStorage.getItem('token');
+	          if(token != null && token != '' && token != 'undefined') {
+	              requestConfig.headers['Authorization'] = 'Token ' + token;
+	          }
+	          
+	          return requestConfig;
+	      };
     };
+    
+    return new AuthService();
   }])
-
+  
+  
   /**
    * $http interceptor.
    * On 401 response (without 'ignoreAuthModule' option) stores the request
@@ -48,8 +80,13 @@
    * and broadcasts 'event:auth-forbidden'.
    */
   .config(['$httpProvider', function($httpProvider) {
-    $httpProvider.interceptors.push(['$rootScope', '$q', 'httpBuffer', function($rootScope, $q, httpBuffer) {
+    $httpProvider.interceptors.push(['$rootScope', '$q', 'httpBuffer', 'authService', function($rootScope, $q, httpBuffer, authService) {
       return {
+    	request : function(config) {
+  			authService.secureRequest(config);
+  			return config || $q.when(config);
+  		}, 
+    	  
         responseError: function(rejection) {
           if (!rejection.config.ignoreAuthModule) {
             switch (rejection.status) {
@@ -121,6 +158,7 @@
        */
       retryAll: function(updater) {
         for (var i = 0; i < buffer.length; ++i) {
+        	console.log("redoing requests...");
           retryHttpRequest(updater(buffer[i].config), buffer[i].deferred);
         }
         buffer = [];
