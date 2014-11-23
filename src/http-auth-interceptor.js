@@ -157,8 +157,7 @@
        * Retries all the buffered requests clears the buffer.
        */
       retryAll: function(updater) {
-        for (var i = 0; i < buffer.length; ++i) {
-        	console.log("redoing requests...");
+        for (var i = 0; i < buffer.length; ++i) {      
           retryHttpRequest(updater(buffer[i].config), buffer[i].deferred);
         }
         buffer = [];
